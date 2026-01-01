@@ -4,12 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Debugging for Vercel
-console.log('[DEBUG] Vercel Env Constants:', {
-    urlExists: !!supabaseUrl,
-    keyExists: !!supabaseAnonKey,
-    urlValue: supabaseUrl ? supabaseUrl.substring(0, 15) + '...' : 'undefined'
-});
+
 
 // Safe initialization to prevent app crash if keys are missing
 if (!supabaseUrl || !supabaseAnonKey) {
