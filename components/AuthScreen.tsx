@@ -7,6 +7,7 @@ export default function AuthScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [isReset, setIsReset] = useState(false);
     const [isSignUp, setIsSignUp] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
@@ -18,7 +19,13 @@ export default function AuthScreen() {
         setMessage(null);
 
         try {
-            if (isSignUp) {
+            if (isReset) {
+                const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+                    redirectTo: window.location.origin,
+                });
+                if (resetError) throw resetError;
+                setMessage('Verifique seu e-mail para redefinir sua senha!');
+            } else if (isSignUp) {
                 const { error: signUpError } = await supabase.auth.signUp({
                     email,
                     password,
@@ -51,22 +58,29 @@ export default function AuthScreen() {
                 </div>
 
                 <div className="p-8">
-                    <div className="flex gap-4 mb-8 bg-gray-50 p-1 rounded-xl">
-                        <button
-                            onClick={() => { setIsSignUp(false); setError(null); setMessage(null); }}
-                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${!isSignUp ? 'bg-white text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                        >
-                            Login
-                        </button>
-                        <button
-                            onClick={() => { setIsSignUp(true); setError(null); setMessage(null); }}
-                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${isSignUp ? 'bg-white text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                        >
-                            Cadastro
-                        </button>
-                    </div>
+                    {!isReset ? (
+                        <div className="flex gap-4 mb-8 bg-gray-50 p-1 rounded-xl">
+                            <button
+                                onClick={() => { setIsSignUp(false); setError(null); setMessage(null); }}
+                                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${!isSignUp ? 'bg-white text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                            >
+                                Login
+                            </button>
+                            <button
+                                onClick={() => { setIsSignUp(true); setError(null); setMessage(null); }}
+                                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${isSignUp ? 'bg-white text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                            >
+                                Cadastro
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="mb-8 text-center">
+                            <h2 className="text-xl font-bold text-gray-800">Recuperar Senha</h2>
+                            <p className="text-sm text-gray-500 mt-1">Digite seu e-mail para receber o link</p>
+                        </div>
+                    )}
 
                     <form onSubmit={handleAuth} className="space-y-4">
                         <div>
@@ -80,17 +94,29 @@ export default function AuthScreen() {
                                 onChange={(e) => setEmail(e.target.value)}
                             />
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Senha</label>
-                            <input
-                                type="password"
-                                required
-                                className="w-full h-12 px-4 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-blue-100 outline-none transition-all font-medium text-gray-800"
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
+
+                        {!isReset && (
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Senha</label>
+                                <input
+                                    type="password"
+                                    required
+                                    className="w-full h-12 px-4 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-blue-100 outline-none transition-all font-medium text-gray-800"
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
+                                <div className="flex justify-end mt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsReset(true); setError(null); setMessage(null); }}
+                                        className="text-xs text-primary hover:text-blue-700 font-medium"
+                                    >
+                                        Esqueci minha senha
+                                    </button>
+                                </div>
+                            </div>
+                        )}
 
                         {error && (
                             <div className="p-4 bg-red-50 text-red-600 text-sm rounded-xl flex gap-3 items-start animate-in fade-in slide-in-from-top-2">
@@ -116,9 +142,19 @@ export default function AuthScreen() {
                                     Processando...
                                 </>
                             ) : (
-                                isSignUp ? 'Criar Conta' : 'Entrar'
+                                isReset ? 'Enviar Link' : (isSignUp ? 'Criar Conta' : 'Entrar')
                             )}
                         </button>
+
+                        {isReset && (
+                            <button
+                                type="button"
+                                onClick={() => { setIsReset(false); setError(null); setMessage(null); }}
+                                className="w-full py-2 text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors"
+                            >
+                                Voltar para o Login
+                            </button>
+                        )}
                     </form>
                 </div>
             </div>
