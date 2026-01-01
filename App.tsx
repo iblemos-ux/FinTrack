@@ -58,6 +58,9 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
+    }).catch((error) => {
+      console.error("Auth init error:", error);
+      setAuthLoading(false);
     });
 
     const {
