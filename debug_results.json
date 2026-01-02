@@ -1,0 +1,36 @@
+{
+  "test2026": {
+    "totalComprado": 0,
+    "faturaAtual": 0,
+    "biggestExpense": null,
+    "logs": [
+      "Checking Expense: Test Product 2025 (2025-02-07)",
+      "  Target: 2026-2, Expense: 2025-2",
+      "  -> NO MATCH for Total Comprado",
+      "  MonthsSinceStart: 12, Paid: 10, EffectiveIndex: 22",
+      "  -> NOT ACTIVE in Fatura Atual"
+    ]
+  },
+  "test2025": {
+    "totalComprado": 1000,
+    "faturaAtual": 0,
+    "biggestExpense": {
+      "id": "1",
+      "data": "2025-02-07",
+      "estabelecimento": "Test Store",
+      "produto": "Test Product 2025",
+      "parcelaTotal": 10,
+      "parcelasPagas": 10,
+      "valorTotal": 1000,
+      "responsavel": "italo",
+      "tipoPagamento": "dividido"
+    },
+    "logs": [
+      "Checking Expense: Test Product 2025 (2025-02-07)",
+      "  Target: 2025-2, Expense: 2025-2",
+      "  -> MATCHED for Total Comprado",
+      "  MonthsSinceStart: 0, Paid: 10, EffectiveIndex: 10",
+      "  -> NOT ACTIVE in Fatura Atual"
+    ]
+  }
+}

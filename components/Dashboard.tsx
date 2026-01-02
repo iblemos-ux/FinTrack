@@ -58,10 +58,26 @@ const Dashboard: React.FC<DashboardProps> = ({
     expenses.forEach(exp => {
       if (exp.deleted) return;
 
-      // Fix timezone issue by local splitting
-      const [eYear, eMonth] = exp.data.split('-').map(Number);
+      // Guards against missing data
+      if (!exp.data) return;
+
+      // Fix timezone/format issue. Handle YYYY-MM-DD and DD/MM/YYYY
+      let eYear: number, eMonth: number;
+      if (exp.data.includes('/')) {
+        const parts = exp.data.split('/').map(Number);
+        eYear = parts[2];
+        eMonth = parts[1];
+      } else {
+        const parts = exp.data.split('-').map(Number);
+        eYear = parts[0];
+        eMonth = parts[1];
+      }
+
       const expYear = eYear;
       const expMonth = eMonth;
+
+      // Ensure valid numbers
+      if (isNaN(eYear) || isNaN(eMonth)) return;
 
       // Stats for the SELECTED month (Purchased in this month)
       if (expYear === year && expMonth === month) {
@@ -72,9 +88,21 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
 
       // Stats for the active BILL (Installments active in this month)
-      const monthsSinceStart = (year - expYear) * 12 + (month - expMonth);
-      if (monthsSinceStart >= 0 && monthsSinceStart < exp.parcelaTotal) {
-        const valuePerInstallment = exp.valorTotal / exp.parcelaTotal;
+      const monthsSinceStart = (year - expYear) * 12 + (month - eMonth);
+
+      // Logic fix: Installments start NEXT month.
+      const paidInstallments = parseInt(String(exp.parcelasPagas || 0), 10) || 0;
+      const totalInstallments = parseInt(String(exp.parcelaTotal || 1), 10) || 1;
+
+      const effectiveIndex = monthsSinceStart - 1;
+
+      // Active checks:
+      // 1. Started: effectiveIndex >= 0
+      // 2. Not Finished: effectiveIndex < totalInstallments
+      // 3. Not Paid: effectiveIndex >= paidInstallments
+
+      if (effectiveIndex >= 0 && effectiveIndex < totalInstallments && effectiveIndex >= paidInstallments) {
+        const valuePerInstallment = exp.valorTotal / totalInstallments;
         faturaAtual += valuePerInstallment;
 
         if (exp.tipoPagamento === 'dividido') {
@@ -92,7 +120,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
 
       // Future Commitments (Remaining installments after this month)
-      const remainingInstallments = exp.parcelaTotal - (monthsSinceStart + 1);
+      // Reuse effectiveIndex calculated above
+      const remainingInstallments = exp.parcelaTotal - (effectiveIndex + 1);
+
       if (remainingInstallments > 0) {
         const val = (exp.valorTotal / exp.parcelaTotal) * remainingInstallments;
         futureCommitments += val;
@@ -140,21 +170,50 @@ const Dashboard: React.FC<DashboardProps> = ({
       // Guard against missing or invalid data
       if (!exp.data || typeof exp.data !== 'string' || exp.deleted) return [];
 
-      const dateParts = exp.data.split('-').map(Number);
-      if (dateParts.length < 2) return [];
+      let eYear: number, eMonth: number;
+      if (exp.data.includes('/')) {
+        const parts = exp.data.split('/').map(Number);
+        if (parts.length < 3) return [];
+        eYear = parts[2];
+        eMonth = parts[1];
+      } else {
+        const parts = exp.data.split('-').map(Number);
+        if (parts.length < 2) return [];
+        eYear = parts[0];
+        eMonth = parts[1];
+      }
 
-      const [eYear, eMonth] = dateParts;
+      if (isNaN(eYear) || isNaN(eMonth)) return [];
 
       // Calculate month difference: (TargetYear - ExpenseYear)*12 + (TargetMonth - ExpenseMonth)
       // This gives the index of the month relative to the start date (0 = first month)
       const monthsSinceStart = (year - eYear) * 12 + (month - eMonth);
 
-      // Verify the installment is valid (0 to total-1)
-      if (monthsSinceStart >= 0 && monthsSinceStart < exp.parcelaTotal) {
+      // Logic fix: Installments start NEXT month.
+      // Example: Buy in May (0), Start paying June (1).
+      // Milena: Buy May, View Jan (+8 months). Index = 8 - 1 = 7 (8th installment). Matches user expectation.
+      const paidInstallments = parseInt(String(exp.parcelasPagas || 0), 10) || 0;
+      const totalInstallments = parseInt(String(exp.parcelaTotal || 1), 10) || 1;
+
+      const effectiveIndex = monthsSinceStart - 1;
+
+      // Active checks:
+      // 1. Started: effectiveIndex >= 0 (Don't show in purchase month, only next month)
+      // 2. Not Finished: effectiveIndex < totalInstallments
+      // 3. Not Paid: effectiveIndex >= paidInstallments (If I paid 7, I want to see #8 (index 7). If index is 6, it's paid.)
+
+      const isActive = effectiveIndex >= 0
+        && effectiveIndex < totalInstallments
+        && effectiveIndex >= paidInstallments;
+
+      if (isActive) {
+        // Prevent showing installment 11/10 (though isActive prevents this)
+        const displayInstallment = effectiveIndex + 1;
+
         return [{
           ...exp,
-          currentInstallment: monthsSinceStart + 1,
-          monthlyValue: exp.valorTotal / (exp.parcelaTotal || 1)
+          currentInstallment: displayInstallment,
+          monthlyValue: exp.valorTotal / totalInstallments
         }];
       }
       return [];
