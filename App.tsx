@@ -236,6 +236,7 @@ export default function App() {
                   setCurrentPage('dashboard');
                 }}
                 editingExpense={editingExpense}
+                existingExpenses={expenses}
               />
             )}
             {currentPage === 'relatorios' && (

@@ -7,15 +7,18 @@ import {
   PlusCircle,
 } from 'lucide-react';
 import { Expense, ExpenseFormState } from '../types';
+
 import ExpenseSummary from './ExpenseSummary';
 
 interface ExpenseFormProps {
   onSave: (data: ExpenseFormState) => void;
   onCancel: () => void;
   editingExpense: Expense | null;
+  existingExpenses?: Expense[];
 }
 
-const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpense }) => {
+
+const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpense, existingExpenses = [] }) => {
   const [form, setForm] = useState<ExpenseFormState>({
     data: new Date().toISOString().split('T')[0],
     estabelecimento: '',
@@ -26,6 +29,26 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
     responsavel: 'italo',
     tipoPagamento: 'dividido'
   });
+
+  // Verificação de duplicidade
+  const [isDuplicate, setIsDuplicate] = useState(false);
+
+  useEffect(() => {
+    if (!form.estabelecimento || !form.valorTotal || !form.responsavel) {
+      setIsDuplicate(false);
+      return;
+    }
+    const valorNum = parseCurrency(form.valorTotal);
+    const found = existingExpenses.some(e =>
+      (!editingExpense || e.id !== editingExpense.id) &&
+      e.estabelecimento.trim().toLowerCase() === form.estabelecimento.trim().toLowerCase() &&
+      e.responsavel.trim().toLowerCase() === form.responsavel.trim().toLowerCase() &&
+      e.produto.trim().toLowerCase() === form.produto.trim().toLowerCase() &&
+      Math.abs(Number(e.valorTotal) - valorNum) < 0.01 &&
+      e.data === form.data
+    );
+    setIsDuplicate(found);
+  }, [form, existingExpenses, editingExpense]);
 
   useEffect(() => {
     if (editingExpense) {
@@ -66,9 +89,10 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
       alert("Por favor preencha os campos obrigatórios (Estabelecimento, Valor e Quem Pagou).");
       return;
     }
-    // Pass the raw string, the parent component handles parsing or we parse here? 
-    // The interface Expects ExpenseFormState with strings. App.tsx does parsing.
-    // Ideally we should fix App.tsx parsing too.
+    if (isDuplicate) {
+      alert("Despesa semelhante já lançada! Verifique para evitar duplicidade.");
+      return;
+    }
     onSave(form);
   };
 
@@ -96,6 +120,13 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {isDuplicate && (
+          <div className="lg:col-span-8 mb-4">
+            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-xl font-bold">
+              Atenção: Uma despesa semelhante já foi lançada para esta data, valor, pagador e estabelecimento/produto. Verifique antes de confirmar!
+            </div>
+          </div>
+        )}
         {/* Form Container */}
         <form onSubmit={handleSubmit} className="lg:col-span-8 space-y-8 bg-white rounded-2xl p-6 md:p-10 shadow-sm border border-[#f0f1f4]">
           <div className="space-y-6">
@@ -192,8 +223,8 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
                 </select>
               </div>
 
-              <div className="flex gap-4">
-                <div className="flex flex-col gap-2 flex-1">
+              <div className="flex gap-4 w-full">
+                <div className="flex flex-col gap-2" style={{flex:1,minWidth:0}}>
                   <label className="text-sm font-bold text-[#111318]">Parcelas</label>
                   <input
                     type="number"
@@ -201,10 +232,11 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
                     value={form.parcelaTotal}
                     onChange={handleInputChange}
                     min="1"
-                    className="h-12 px-4 rounded-xl border border-[#dbdee6] focus:ring-2 focus:ring-primary focus:outline-none font-bold"
+                    className="h-12 px-4 rounded-xl border border-[#dbdee6] focus:ring-2 focus:ring-primary focus:outline-none font-bold w-full"
+                    style={{boxSizing:'border-box'}}
                   />
                 </div>
-                <div className="flex flex-col gap-2 flex-1">
+                <div className="flex flex-col gap-2" style={{flex:1,minWidth:0}}>
                   <label className="text-sm font-bold text-[#111318]">Já Pagas</label>
                   <input
                     type="number"
@@ -212,7 +244,8 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
                     value={form.parcelasPagas}
                     onChange={handleInputChange}
                     min="0"
-                    className="h-12 px-4 rounded-xl border border-[#dbdee6] focus:ring-2 focus:ring-primary focus:outline-none font-bold"
+                    className="h-12 px-4 rounded-xl border border-[#dbdee6] focus:ring-2 focus:ring-primary focus:outline-none font-bold w-full"
+                    style={{boxSizing:'border-box'}}
                   />
                 </div>
               </div>
@@ -230,11 +263,20 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, editingExpe
           </div>
         </form>
 
-        <ExpenseSummary
-          form={form}
-          installmentValue={installmentValue}
-          totalValueNum={totalValueNum}
-        />
+        <div className="lg:col-span-4">
+          <ExpenseSummary
+            form={form}
+            installmentValue={installmentValue}
+            totalValueNum={totalValueNum}
+          />
+          {isDuplicate && (
+            <div className="w-full flex justify-center mt-2">
+              <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-2 rounded-xl font-bold text-center shadow text-xs max-w-[90%]">
+                Atenção: Despesa semelhante já lançada!
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

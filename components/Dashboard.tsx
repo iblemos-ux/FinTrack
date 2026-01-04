@@ -47,86 +47,98 @@ const Dashboard: React.FC<DashboardProps> = ({
   const stats = useMemo(() => {
     const [year, month] = selectedMonth.split('-').map(Number);
 
-    let totalComprado = 0;
-    let faturaAtual = 0;
-    let parteItalo = 0;
-    let parteEdna = 0;
-    let futureCommitments = 0;
-    let biggestExpense: Expense | null = null;
-    const establishmentMap = new Map<string, number>();
+    // Gera todas as parcelas (incluindo parcela 0)
+    const allInstallments = expenses.flatMap(exp => {
+      if (!exp.data || typeof exp.data !== 'string' || exp.deleted) return [];
 
-    expenses.forEach(exp => {
-      if (exp.deleted) return;
-
-      // Guards against missing data
-      if (!exp.data) return;
-
-      // Fix timezone/format issue. Handle YYYY-MM-DD and DD/MM/YYYY
       let eYear: number, eMonth: number;
       if (exp.data.includes('/')) {
         const parts = exp.data.split('/').map(Number);
+        if (parts.length < 3) return [];
         eYear = parts[2];
         eMonth = parts[1];
       } else {
         const parts = exp.data.split('-').map(Number);
+        if (parts.length < 2) return [];
         eYear = parts[0];
         eMonth = parts[1];
       }
 
-      const expYear = eYear;
-      const expMonth = eMonth;
+      if (isNaN(eYear) || isNaN(eMonth)) return [];
 
-      // Ensure valid numbers
-      if (isNaN(eYear) || isNaN(eMonth)) return;
-
-      // Stats for the SELECTED month (Purchased in this month)
-      if (expYear === year && expMonth === month) {
-        totalComprado += exp.valorTotal;
-        if (!biggestExpense || exp.valorTotal > (biggestExpense as Expense).valorTotal) {
-          biggestExpense = exp;
-        }
-      }
-
-      // Stats for the active BILL (Installments active in this month)
-      const monthsSinceStart = (year - expYear) * 12 + (month - eMonth);
-
-      // Logic fix: Installments start NEXT month.
-      const paidInstallments = parseInt(String(exp.parcelasPagas || 0), 10) || 0;
       const totalInstallments = parseInt(String(exp.parcelaTotal || 1), 10) || 1;
+      const monthlyValue = exp.valorTotal / totalInstallments;
+      // Parcela 0 no mês do lançamento
+      const launchRow = {
+        ...exp,
+        data: exp.data, // sempre a data original do lançamento
+        currentInstallment: 0,
+        monthlyValue: 0,
+        _type: 'launch',
+        _installmentYear: eYear,
+        _installmentMonth: eMonth,
+        _originalData: exp.data,
+      };
+      // Parcelas 1...N nos meses subsequentes
+      const installments = Array.from({ length: totalInstallments }, (_, idx) => {
+        const parcelaMonth = eMonth + idx + 1;
+        const parcelaYear = eYear + Math.floor((parcelaMonth - 1) / 12);
+        const realMonth = ((parcelaMonth - 1) % 12) + 1;
+        return {
+          ...exp,
+          data: `${parcelaYear}-${String(realMonth).padStart(2, '0')}-01`, // usada só para ordenação e filtro
+          currentInstallment: idx + 1,
+          monthlyValue,
+          _type: 'installment',
+          _installmentYear: parcelaYear,
+          _installmentMonth: realMonth,
+          _originalData: exp.data, // sempre a data original do lançamento
+        };
+      });
+      return [launchRow, ...installments];
+    });
 
-      const effectiveIndex = monthsSinceStart - 1;
+    // Filtra para mostrar apenas as parcelas do mês selecionado (ignorando parcela 0)
+    const filtered = allInstallments.filter(item => {
+      return item._installmentYear === year && item._installmentMonth === month && item.currentInstallment > 0;
+    });
 
-      // Active checks:
-      // 1. Started: effectiveIndex >= 0
-      // 2. Not Finished: effectiveIndex < totalInstallments
-      // 3. Not Paid: effectiveIndex >= paidInstallments
+    // Compromissos futuros: todas as parcelas a partir do mês seguinte ao selecionado
+    const futureInstallments = allInstallments.filter(item => {
+      if (item.currentInstallment === 0) return false;
+      if (item._installmentYear < year) return false;
+      if (item._installmentYear === year && item._installmentMonth <= month) return false;
+      return true;
+    });
 
-      if (effectiveIndex >= 0 && effectiveIndex < totalInstallments && effectiveIndex >= paidInstallments) {
-        const valuePerInstallment = exp.valorTotal / totalInstallments;
-        faturaAtual += valuePerInstallment;
+    let faturaAtual = 0;
+    let parteItalo = 0;
+    let parteEdna = 0;
+    let biggestExpense: Expense | null = null;
+    const establishmentMap = new Map<string, number>();
+    let futureCommitments = 0;
 
-        if (exp.tipoPagamento === 'dividido') {
-          parteItalo += valuePerInstallment / 2;
-          parteEdna += valuePerInstallment / 2;
-        } else if (exp.tipoPagamento === 'italo_full') {
-          parteItalo += valuePerInstallment;
-        } else if (exp.tipoPagamento === 'edna_full') {
-          parteEdna += valuePerInstallment;
-        }
-
-        // Add to establishment map
-        const currentEstabVal = establishmentMap.get(exp.estabelecimento) || 0;
-        establishmentMap.set(exp.estabelecimento, currentEstabVal + valuePerInstallment);
+    filtered.forEach(item => {
+      faturaAtual += item.monthlyValue;
+      if (item.tipoPagamento === 'dividido') {
+        parteItalo += item.monthlyValue / 2;
+        parteEdna += item.monthlyValue / 2;
+      } else if (item.tipoPagamento === 'italo_full') {
+        parteItalo += item.monthlyValue;
+      } else if (item.tipoPagamento === 'edna_full') {
+        parteEdna += item.monthlyValue;
       }
-
-      // Future Commitments (Remaining installments after this month)
-      // Reuse effectiveIndex calculated above
-      const remainingInstallments = exp.parcelaTotal - (effectiveIndex + 1);
-
-      if (remainingInstallments > 0) {
-        const val = (exp.valorTotal / exp.parcelaTotal) * remainingInstallments;
-        futureCommitments += val;
+      // Add to establishment map
+      const currentEstabVal = establishmentMap.get(item.estabelecimento) || 0;
+      establishmentMap.set(item.estabelecimento, currentEstabVal + item.monthlyValue);
+      // Biggest expense (by monthly value)
+      if (!biggestExpense || item.monthlyValue > (biggestExpense as Expense).valorTotal) {
+        biggestExpense = item;
       }
+    });
+
+    futureInstallments.forEach(item => {
+      futureCommitments += item.monthlyValue;
     });
 
     const totalFatura = parteItalo + parteEdna || 1;
@@ -138,7 +150,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       .slice(0, 5);
 
     return {
-      totalComprado,
+      totalComprado: 0, // pode ser ajustado se quiser somar lançamentos do mês
       faturaAtual,
       parteItalo,
       parteEdna,
@@ -166,8 +178,9 @@ const Dashboard: React.FC<DashboardProps> = ({
 
     const [year, month] = parts;
 
-    return expenses.flatMap(exp => {
-      // Guard against missing or invalid data
+
+    // Para cada despesa parcelada, gerar uma linha de parcela 0 no mês do lançamento e as demais parcelas nos meses subsequentes
+    const allInstallments = expenses.flatMap(exp => {
       if (!exp.data || typeof exp.data !== 'string' || exp.deleted) return [];
 
       let eYear: number, eMonth: number;
@@ -185,60 +198,60 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       if (isNaN(eYear) || isNaN(eMonth)) return [];
 
-      // Calculate month difference: (TargetYear - ExpenseYear)*12 + (TargetMonth - ExpenseMonth)
-      // This gives the index of the month relative to the start date (0 = first month)
-      const monthsSinceStart = (year - eYear) * 12 + (month - eMonth);
-
-      // Logic fix: Installments start NEXT month.
-      // Example: Buy in May (0), Start paying June (1).
-      // Milena: Buy May, View Jan (+8 months). Index = 8 - 1 = 7 (8th installment). Matches user expectation.
-      const paidInstallments = parseInt(String(exp.parcelasPagas || 0), 10) || 0;
       const totalInstallments = parseInt(String(exp.parcelaTotal || 1), 10) || 1;
-
-      const effectiveIndex = monthsSinceStart - 1;
-
-      // Active checks:
-      // 1. Started: effectiveIndex >= 0 (Don't show in purchase month, only next month)
-      // 2. Not Finished: effectiveIndex < totalInstallments
-      // 3. Not Paid: effectiveIndex >= paidInstallments (If I paid 7, I want to see #8 (index 7). If index is 6, it's paid.)
-
-      const isActive = effectiveIndex >= 0
-        && effectiveIndex < totalInstallments
-        && effectiveIndex >= paidInstallments;
-
-      if (isActive) {
-        // Prevent showing installment 11/10 (though isActive prevents this)
-        const displayInstallment = effectiveIndex + 1;
-
-        return [{
+      const monthlyValue = exp.valorTotal / totalInstallments;
+      // Parcela 0 no mês do lançamento
+      const launchRow = {
+        ...exp,
+        data: exp.data, // sempre a data original do lançamento
+        currentInstallment: 0,
+        monthlyValue: 0,
+        _type: 'launch',
+        _installmentYear: eYear,
+        _installmentMonth: eMonth,
+        _originalData: exp.data,
+      };
+      // Parcelas 1...N nos meses subsequentes
+      const installments = Array.from({ length: totalInstallments }, (_, idx) => {
+        const parcelaMonth = eMonth + idx + 1;
+        const parcelaYear = eYear + Math.floor((parcelaMonth - 1) / 12);
+        const realMonth = ((parcelaMonth - 1) % 12) + 1;
+        return {
           ...exp,
-          currentInstallment: displayInstallment,
-          monthlyValue: exp.valorTotal / totalInstallments
-        }];
-      }
-      return [];
-    })
+          data: `${parcelaYear}-${String(realMonth).padStart(2, '0')}-01`, // usada só para ordenação e filtro
+          currentInstallment: idx + 1,
+          monthlyValue,
+          _type: 'installment',
+          _installmentYear: parcelaYear,
+          _installmentMonth: realMonth,
+          _originalData: exp.data, // sempre a data original do lançamento
+        };
+      });
+      return [launchRow, ...installments];
+    });
+
+    // Filtra para mostrar apenas as parcelas do mês selecionado
+    const filtered = allInstallments.filter(item => {
+      return item._installmentYear === year && item._installmentMonth === month;
+    });
+
+    // Filtros existentes
+    return filtered
       .filter(item => {
-        // Safe access helper
         const safeStr = (str: any) => (str || '').toString().toLowerCase();
-
-        // Calculate derived fields for search
         const itemMonth = new Date(item.data).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
-
         const matchesEstab = safeStr(item.estabelecimento).includes(safeStr(filters.estabelecimento));
         const matchesResp = filters.responsavel ? safeStr(item.responsavel) === safeStr(filters.responsavel) : true;
         const matchesType = filters.tipoPagamento ? item.tipoPagamento === filters.tipoPagamento : true;
-
         const matchesSearch = searchTerm
           ? (safeStr(item.estabelecimento).includes(safeStr(searchTerm)) ||
             safeStr(item.produto).includes(safeStr(searchTerm)) ||
             safeStr(item.responsavel).includes(safeStr(searchTerm)) ||
             safeStr(itemMonth).includes(safeStr(searchTerm)))
           : true;
-
         return matchesEstab && matchesResp && matchesType && matchesSearch;
       })
-      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()); // Sort by date ascending
+      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
   }, [expenses, selectedMonth, filters, searchTerm]);
 
   const formatCurrency = (val: number) => {
@@ -250,29 +263,35 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleExport = () => {
+
     const headers = ['Data', 'Mês', 'Comprador', 'Estabelecimento', 'Produto', 'Parc. Pagas', 'Parc. Totais', 'Vlr Total', 'Vlr Parcela', 'Italo', 'Edna'];
     const csvContent = [
       headers.join(','),
       ...tableData.map(item => {
-        const itemMonth = new Date(item.data).toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase().replace('.', '');
+        // Mês da parcela exibida (não do lançamento)
+        const parcelaDate = new Date(item.data + 'T12:00:00');
+        const itemMonth = parcelaDate.toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase().replace('.', '');
+        // Formatação moeda
+        const formatBRL = (val) => 'R$ ' + val.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         const isDividido = item.tipoPagamento === 'dividido';
         const isItalo = item.tipoPagamento === 'italo_full';
         const isEdna = item.tipoPagamento === 'edna_full';
         const italoValue = isDividido ? item.monthlyValue / 2 : (isItalo ? item.monthlyValue : 0);
         const ednaValue = isDividido ? item.monthlyValue / 2 : (isEdna ? item.monthlyValue : 0);
 
+        // Garante que todos os campos estejam presentes e sem quebras de linha ou vírgulas extras
         return [
-          item.data,
-          itemMonth,
-          item.responsavel,
-          `"${item.estabelecimento}"`,
-          `"${item.produto}"`,
+          '"' + (item._originalData || item.data) + '"',
+          '"' + itemMonth + '"',
+          '"' + (item.responsavel || '') + '"',
+          '"' + (item.estabelecimento || '') + '"',
+          '"' + (item.produto || '') + '"',
           item.currentInstallment,
           item.parcelaTotal,
-          item.valorTotal.toFixed(2),
-          item.monthlyValue.toFixed(2),
-          italoValue.toFixed(2),
-          ednaValue.toFixed(2)
+          '"' + formatBRL(item.valorTotal) + '"',
+          '"' + formatBRL(item.monthlyValue) + '"',
+          '"' + formatBRL(italoValue) + '"',
+          '"' + formatBRL(ednaValue) + '"'
         ].join(',');
       })
     ].join('\n');
@@ -572,7 +591,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   return (
                     <tr key={`${item.id}-${item.currentInstallment}`} className="hover:bg-blue-50/20 transition-colors group">
                       <td className="px-4 py-4 text-xs font-bold text-gray-600">
-                        {new Date(item.data + 'T12:00:00').toLocaleDateString('pt-BR')}
+                        {new Date((item._originalData || item.data) + 'T12:00:00').toLocaleDateString('pt-BR')}
                       </td>
                       <td className="px-4 py-4 text-xs font-bold text-gray-600">
                         {itemMonth}
